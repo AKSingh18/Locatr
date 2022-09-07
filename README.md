@@ -2,7 +2,7 @@
 
 ## Synopsis
 
-Locatr uses your current location to perform a Flickr geo search. It will use the location to look 
+Locatr uses your current location to perform a [Flickr](https://www.flickr.com/) geo search. It will use the location to look 
 for pictures nearby and it will show the picture on a map.
 
 ## Table of Contents
