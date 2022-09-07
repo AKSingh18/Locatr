@@ -1,0 +1,340 @@
+package com.bignerdranch.android.locatractivity;
+
+import android.Manifest;
+import android.annotation.SuppressLint;
+import android.app.AlertDialog;
+import android.content.Context;
+import android.content.DialogInterface;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.location.Location;
+import android.location.LocationManager;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
+import android.os.AsyncTask;
+import android.os.Bundle;
+import android.provider.Settings;
+import android.util.Log;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
+
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.core.app.ActivityCompat;
+
+import com.google.android.gms.common.GoogleApiAvailability;
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.location.Priority;
+import com.google.android.gms.maps.CameraUpdate;
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.BitmapDescriptor;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
+import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.LatLngBounds;
+import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
+
+import java.io.IOException;
+import java.util.List;
+
+public class LocatrFragment extends SupportMapFragment
+{
+    private static final String TAG = "LocatrFragment";
+
+    private static final String[] LOCATION_PERMISSIONS = {
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+    };
+
+    private static final int REQUEST_LOCATION_PERMISSIONS = 0;
+
+    private GoogleMap mMap;
+    private Bitmap mMapBitmap;
+    private GalleryItem mMapItem;
+    private Location mCurrentLocation;
+    private FusedLocationProviderClient mLocationProviderClient;
+
+    private class SearchTask extends AsyncTask<Location,Void,Void>
+    {
+        private GalleryItem mGalleryItem;
+        private Bitmap mBitmap;
+        private Location mLocation;
+
+        @Override
+        protected Void doInBackground(Location... params)
+        {
+            FlickrFetchr fetchr = new FlickrFetchr();
+            mLocation = params[0];
+
+            List<GalleryItem> items = fetchr.searchPhotos(params[0]);
+            if (items.size() == 0) return null;
+
+            mGalleryItem = items.get(0);
+
+            try
+            {
+                byte[] bytes = fetchr.getUrlBytes(mGalleryItem.getUrl());
+                mBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            }
+            catch (IOException ioe)
+            {
+                Log.i(TAG, "Unable to download bitmap.", ioe);
+            }
+
+            return null;
+        }
+
+        @Override
+        protected void onPostExecute(Void unused)
+        {
+            mMapBitmap = mBitmap;
+            mMapItem = mGalleryItem;
+            mCurrentLocation = mLocation;
+            updateUI();
+        }
+    }
+
+
+    public static LocatrFragment newInstance()
+    {
+        return new LocatrFragment();
+    }
+
+    @Override
+    public void onCreate(@Nullable Bundle savedInstanceState)
+    {
+        super.onCreate(savedInstanceState);
+        setHasOptionsMenu(true);
+
+        mLocationProviderClient = LocationServices.getFusedLocationProviderClient(getActivity());
+
+        getMapAsync(new OnMapReadyCallback()
+        {
+            @Override
+            public void onMapReady(@NonNull GoogleMap googleMap)
+            {
+                mMap = googleMap;
+                updateUI();
+            }
+        });
+    }
+
+    @Override
+    public void onStart()
+    {
+        super.onStart();
+        getActivity().invalidateOptionsMenu();
+    }
+
+    @Override
+    public void onCreateOptionsMenu(@NonNull Menu menu, @NonNull MenuInflater inflater)
+    {
+        super.onCreateOptionsMenu(menu, inflater);
+        inflater.inflate(R.menu.fragment_locatr, menu);
+
+        MenuItem searchItem = menu.findItem(R.id.action_locate);
+
+        GoogleApiAvailability.getInstance()
+                .checkApiAvailability(mLocationProviderClient)
+                .addOnSuccessListener(new OnSuccessListener<Void>()
+                {
+                    @Override
+                    public void onSuccess(Void unused)
+                    {
+                        searchItem.setEnabled(true);
+                    }
+                })
+                .addOnFailureListener(new OnFailureListener()
+                {
+                    @Override
+                    public void onFailure(@NonNull Exception e)
+                    {
+                        searchItem.setEnabled(false);
+                    }
+                });
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(@NonNull MenuItem item)
+    {
+        switch (item.getItemId())
+        {
+            case R.id.action_locate:
+
+                boolean locationPermission = hasLocationPermission();
+                boolean locationEnabled = isLocationAvailable();
+                boolean networkEnabled = isNetworkAvailable();
+
+                if (locationEnabled && locationPermission && networkEnabled) findImage();
+                else if (!locationPermission)
+                {
+                    if (shouldShowRequestPermissionRationale(LOCATION_PERMISSIONS[0]))
+                    {
+                        AlertDialog dialog = new AlertDialog.Builder(getActivity())
+                                .setTitle(R.string.location_rationale_title)
+                                .setMessage(R.string.location_rationale_message)
+                                .setPositiveButton("Proceed", new DialogInterface.OnClickListener()
+                                {
+                                    @Override
+                                    public void onClick(DialogInterface dialogInterface, int i)
+                                    {
+                                        requestPermissions(LOCATION_PERMISSIONS, REQUEST_LOCATION_PERMISSIONS);
+                                    }
+                                })
+                                .create();
+
+                        dialog.show();
+                    }
+                    else requestPermissions(LOCATION_PERMISSIONS, REQUEST_LOCATION_PERMISSIONS);
+                }
+                else if (!locationEnabled)
+                {
+                    new AlertDialog.Builder(getActivity())
+                            .setMessage(R.string.location_not_enabled_message)
+                            .setPositiveButton("Ok", new DialogInterface.OnClickListener()
+                            {
+                                @Override
+                                public void onClick(DialogInterface paramDialogInterface, int paramInt)
+                                {
+                                    getActivity().startActivity(
+                                            new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS));
+                                }
+                            })
+                            .setNegativeButton("Cancel",null)
+                            .show();
+                }
+                else
+                {
+                    new AlertDialog.Builder(getActivity())
+                            .setMessage(R.string.network_not_enabled_message)
+                            .setPositiveButton("Ok", new DialogInterface.OnClickListener()
+                            {
+                                @Override
+                                public void onClick(DialogInterface paramDialogInterface, int paramInt)
+                                {
+                                    getActivity().startActivity(
+                                            new Intent(Settings.ACTION_SETTINGS));
+                                }
+                            })
+                            .setNegativeButton("Cancel",null)
+                            .show();
+                }
+
+                return true;
+            default:
+                return super.onOptionsItemSelected(item);
+        }
+    }
+
+    @Override
+    public void onStop()
+    {
+        super.onStop();
+    }
+
+    @SuppressLint("MissingPermission")
+    private void findImage()
+    {
+        mLocationProviderClient
+                .getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                .addOnSuccessListener(new OnSuccessListener<Location>()
+                {
+                    @Override
+                    public void onSuccess(Location location)
+                    {
+                        Log.i(TAG, "Got a fix: " + location);
+
+                        if (location != null)
+                        {
+                            new SearchTask().execute(location);
+                        }
+                    }
+                });
+    }
+
+    private boolean hasLocationPermission()
+    {
+        int hasFineLocationPermission = ActivityCompat.checkSelfPermission(getActivity(), LOCATION_PERMISSIONS[0]);
+        int hasCoarseLocationPermission = ActivityCompat.checkSelfPermission(getActivity(), LOCATION_PERMISSIONS[1]);
+
+        return hasFineLocationPermission == PackageManager.PERMISSION_GRANTED &&
+                hasCoarseLocationPermission == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean isLocationAvailable()
+    {
+        LocationManager lm = (LocationManager)getActivity()
+                .getSystemService(Context.LOCATION_SERVICE);
+
+        boolean gps_enabled = lm.isProviderEnabled(LocationManager.GPS_PROVIDER);
+        return gps_enabled;
+    }
+
+    private boolean isNetworkAvailable()
+    {
+        ConnectivityManager connectivityManager = (ConnectivityManager)getActivity()
+                .getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo activeNetworkInfo = connectivityManager != null ?
+                connectivityManager.getActiveNetworkInfo() : null;
+
+        return activeNetworkInfo != null && activeNetworkInfo.isConnected();
+    }
+
+    private void updateUI()
+    {
+        if (mMap == null || mMapBitmap == null)
+        {
+            return;
+        }
+
+        LatLng itemPoint = new LatLng(mMapItem.getLat(),mMapItem.getLon());
+        LatLng myPoint = new LatLng( mCurrentLocation.getLatitude(), mCurrentLocation.getLongitude());
+
+        BitmapDescriptor itemBitmap = BitmapDescriptorFactory.fromBitmap(mMapBitmap);
+
+        MarkerOptions itemMarker = new MarkerOptions()
+                .position(itemPoint)
+                .icon(itemBitmap);
+
+        MarkerOptions myMarker = new MarkerOptions()
+                .position(myPoint);
+
+        mMap.clear();
+        mMap.addMarker(myMarker);
+        mMap.addMarker(itemMarker);
+
+        LatLngBounds bounds = new LatLngBounds.Builder()
+                .include(itemPoint)
+                .include(myPoint)
+                .build();
+
+        int margin = getResources().getDimensionPixelSize(R.dimen.map_inset_margin);
+
+        CameraUpdate cameraUpdate = CameraUpdateFactory.newLatLngBounds(bounds,margin);
+        mMap.animateCamera(cameraUpdate);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults)
+    {
+        switch (requestCode)
+        {
+            case REQUEST_LOCATION_PERMISSIONS:
+
+                if (hasLocationPermission()) findImage();
+                break;
+
+            default:
+                super.onRequestPermissionsResult(requestCode,permissions,grantResults);
+        }
+    }
+}

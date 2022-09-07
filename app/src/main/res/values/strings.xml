@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Locatr</string>
+    <string name="search">Find an image near you</string>
+    <string name="location_rationale_message">Locatr uses location data to find images near you on Flickr</string>
+    <string name="location_rationale_title">LocatrActivity Location Permission</string>
+    <string name="title_activity_maps">MapsActivity</string>
+    <string name="location_not_enabled_message">To continue, let your device turn on Location using Google\'s location service.</string>
+    <string name="network_not_enabled_message">To continue, enable your device Internet.</string>
+</resources>
